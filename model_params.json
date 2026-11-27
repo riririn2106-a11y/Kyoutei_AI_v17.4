@@ -1,0 +1,329 @@
+{
+  "version": "V16-RealOddsEV",
+  "updated_at": "2026-11-27 06:18:51",
+  "trained_races": 4552,
+  "weights": {
+    "win_rate_national": 0.4835,
+    "rate_national": -0.9146,
+    "win_rate_local": 0.2205,
+    "rate_local": 1.8718,
+    "motor": 0.5,
+    "st_relative": 1.1513,
+    "raw_win_rate_add": 4.3199,
+    "ex_score_weight": 1.0005,
+    "makuri_attack_weight": 0.9967,
+    "course_1st_weight": 0.65,
+    "course_2nd_weight": 0.5,
+    "course_3rd_weight": 0.4,
+    "f_1st_coef": 0.01448,
+    "in_prob_bias": 0.8944,
+    "ana_min_myoumi": 1.2,
+    "ana_min_real_ev": 1.0,
+    "ana_max_1st_prob": 0.35
+  },
+  "venue_weights": {
+    "多摩川": {
+      "trained_races": 2261,
+      "weights": {
+        "win_rate_national": 0.4835,
+        "rate_national": -0.9146,
+        "win_rate_local": 0.2205,
+        "rate_local": 1.8718,
+        "motor": 0.5,
+        "st_relative": 1.1513,
+        "raw_win_rate_add": 4.3199,
+        "ex_score_weight": 1.0009,
+        "makuri_attack_weight": 0.9996,
+        "course_1st_weight": 0.65,
+        "course_2nd_weight": 0.5,
+        "course_3rd_weight": 0.4,
+        "f_1st_coef": 0.01366,
+        "in_prob_bias": 1.0133,
+        "ana_min_myoumi": 1.2,
+        "ana_min_real_ev": 1.0,
+        "ana_max_1st_prob": 0.35
+      }
+    },
+    "戸田": {
+      "trained_races": 2266,
+      "weights": {
+        "win_rate_national": 0.4835,
+        "rate_national": -0.9146,
+        "win_rate_local": 0.2205,
+        "rate_local": 1.8718,
+        "motor": 0.5,
+        "st_relative": 1.1513,
+        "raw_win_rate_add": 4.3199,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.9995,
+        "course_1st_weight": 0.65,
+        "course_2nd_weight": 0.5,
+        "course_3rd_weight": 0.4,
+        "f_1st_coef": 0.01226,
+        "in_prob_bias": 0.9543,
+        "ana_min_myoumi": 1.2,
+        "ana_min_real_ev": 1.0,
+        "ana_max_1st_prob": 0.35
+      }
+    },
+    "桐生": {
+      "trained_races": 21,
+      "weights": {
+        "win_rate_national": 0.4835,
+        "rate_national": -0.9146,
+        "win_rate_local": 0.2205,
+        "rate_local": 1.8718,
+        "motor": 0.5,
+        "st_relative": 1.1513,
+        "raw_win_rate_add": 4.3199,
+        "ex_score_weight": 1.0003,
+        "makuri_attack_weight": 0.9989,
+        "course_1st_weight": 0.65,
+        "course_2nd_weight": 0.5,
+        "course_3rd_weight": 0.4,
+        "f_1st_coef": 0.01024,
+        "in_prob_bias": 1.184,
+        "ana_min_myoumi": 1.2,
+        "ana_min_real_ev": 1.0,
+        "ana_max_1st_prob": 0.35
+      }
+    }
+  },
+  "history": [
+    {
+      "at": "2026-11-25 02:27:42",
+      "races": 1164,
+      "global": {
+        "in_prob_bias": 0.9936,
+        "f_1st_coef": 0.0111,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.9998
+      },
+      "venues": {
+        "戸田": 1145
+      }
+    },
+    {
+      "at": "2026-11-25 02:27:51",
+      "races": 1164,
+      "global": {
+        "in_prob_bias": 0.9873,
+        "f_1st_coef": 0.0112,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.9996
+      },
+      "venues": {
+        "戸田": 1145
+      }
+    },
+    {
+      "at": "2026-11-25 02:28:18",
+      "races": 1164,
+      "global": {
+        "in_prob_bias": 0.981,
+        "f_1st_coef": 0.0113,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.9994
+      },
+      "venues": {
+        "戸田": 1145
+      }
+    },
+    {
+      "at": "2026-11-25 02:28:19",
+      "races": 1164,
+      "global": {
+        "in_prob_bias": 0.9748,
+        "f_1st_coef": 0.0114,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.9992
+      },
+      "venues": {
+        "戸田": 1145
+      }
+    },
+    {
+      "at": "2026-11-25 02:28:20",
+      "races": 1164,
+      "global": {
+        "in_prob_bias": 0.9686,
+        "f_1st_coef": 0.0115,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.999
+      },
+      "venues": {
+        "戸田": 1145
+      }
+    },
+    {
+      "at": "2026-11-25 02:28:20",
+      "races": 1164,
+      "global": {
+        "in_prob_bias": 0.9624,
+        "f_1st_coef": 0.0116,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.9988
+      },
+      "venues": {
+        "戸田": 1145
+      }
+    },
+    {
+      "at": "2026-11-25 02:28:27",
+      "races": 1164,
+      "global": {
+        "in_prob_bias": 0.9563,
+        "f_1st_coef": 0.0117,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.9986
+      },
+      "venues": {
+        "戸田": 1145
+      }
+    },
+    {
+      "at": "2026-11-25 02:28:27",
+      "races": 1164,
+      "global": {
+        "in_prob_bias": 0.9502,
+        "f_1st_coef": 0.0118,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.9984
+      },
+      "venues": {
+        "戸田": 1145
+      }
+    },
+    {
+      "at": "2026-11-25 02:28:28",
+      "races": 1164,
+      "global": {
+        "in_prob_bias": 0.9442,
+        "f_1st_coef": 0.0119,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.9982
+      },
+      "venues": {
+        "戸田": 1145
+      }
+    },
+    {
+      "at": "2026-11-25 02:28:28",
+      "races": 1164,
+      "global": {
+        "in_prob_bias": 0.9382,
+        "f_1st_coef": 0.012,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.998
+      },
+      "venues": {
+        "戸田": 1145
+      }
+    },
+    {
+      "at": "2026-11-25 02:28:28",
+      "races": 1164,
+      "global": {
+        "in_prob_bias": 0.9322,
+        "f_1st_coef": 0.0121,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.9978
+      },
+      "venues": {
+        "戸田": 1145
+      }
+    },
+    {
+      "at": "2026-11-25 02:28:29",
+      "races": 1164,
+      "global": {
+        "in_prob_bias": 0.9263,
+        "f_1st_coef": 0.0122,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.9976
+      },
+      "venues": {
+        "戸田": 1145
+      }
+    },
+    {
+      "at": "2026-11-25 02:28:30",
+      "races": 1164,
+      "global": {
+        "in_prob_bias": 0.9204,
+        "f_1st_coef": 0.0123,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.9974
+      },
+      "venues": {
+        "戸田": 1145
+      }
+    },
+    {
+      "at": "2026-11-25 02:28:30",
+      "races": 1164,
+      "global": {
+        "in_prob_bias": 0.9145,
+        "f_1st_coef": 0.0124,
+        "ex_score_weight": 1.0,
+        "makuri_attack_weight": 0.9972
+      },
+      "venues": {
+        "戸田": 1145
+      }
+    },
+    {
+      "at": "2026-11-25 03:10:18",
+      "races": 1329,
+      "in_prob_bias": 0.905,
+      "f_1st_coef": 0.01252,
+      "ex_score_weight": 1.0,
+      "makuri_attack_weight": 0.997
+    },
+    {
+      "at": "2026-11-26 12:00:06",
+      "races": 3804,
+      "global": {
+        "in_prob_bias": 0.9078,
+        "f_1st_coef": 0.01311,
+        "ex_score_weight": 1.0002,
+        "makuri_attack_weight": 0.9969
+      },
+      "venues": {
+        "多摩川": 1913,
+        "戸田": 1866,
+        "桐生": 21
+      }
+    },
+    {
+      "at": "2026-11-27 00:41:27",
+      "races": 3804,
+      "global": {
+        "in_prob_bias": 0.9107,
+        "f_1st_coef": 0.0137,
+        "ex_score_weight": 1.0004,
+        "makuri_attack_weight": 0.9968
+      },
+      "venues": {
+        "多摩川": 1913,
+        "戸田": 1866,
+        "桐生": 21
+      }
+    },
+    {
+      "at": "2026-11-27 06:18:51",
+      "races": 4552,
+      "global": {
+        "in_prob_bias": 0.8944,
+        "f_1st_coef": 0.01448,
+        "ex_score_weight": 1.0005,
+        "makuri_attack_weight": 0.9967
+      },
+      "venues": {
+        "多摩川": 2261,
+        "戸田": 2266,
+        "桐生": 21
+      }
+    }
+  ]
+}
