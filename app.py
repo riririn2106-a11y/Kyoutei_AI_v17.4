@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+import uuid
 from typing import List, Optional, Tuple
 
 import pandas as pd
@@ -34,20 +35,23 @@ BOAT_COLORS = {
 
 STADIUM_LIST = [engine.STADIUM_CODE_MAP[i] for i in range(1, 25)]
 
+# 実戦収支ログファイル（v17_4_1.py と同じディレクトリ）
+ACTUAL_BET_LOG_FILE = os.path.join(engine.SCRIPT_DIR, "actual_bet_log.jsonl")
+
 # 画像読み取りの速度と安定性を優先したモデル一覧（上から推奨順）
 DEFAULT_GEMINI_MODELS = [
-    "gemini-4-hydrogen",
     "gemini-3.5-flash",
+    "gemini-4-hydrogen",
     "gemini-3.5-flash-lite",
     "gemini-2.5-pro",
     "gemini-4-carbon",
     "gemini-3.1-pro-preview",
 ]
 
-# 自動フォールバック順（選択モデルが 429 / 404 / タイムアウト時に順次試行）
+# 自動フォールバック順（選択モデルが 429 / 404 / 503 / タイムアウト時に順次試行）
 FALLBACK_MODEL_CHAIN = [
-    "gemini-4-hydrogen",
     "gemini-3.5-flash",
+    "gemini-4-hydrogen",
     "gemini-3.5-flash-lite",
     "gemini-2.5-pro",
 ]
@@ -171,6 +175,70 @@ GEMINI_EXTRACTION_PROMPT = """
 
 
 # ==========================================
+# 実戦収支ログ I/O・集計ヘルパー
+# ==========================================
+def load_actual_bet_logs(filepath: str = ACTUAL_BET_LOG_FILE) -> list:
+    if not os.path.exists(filepath):
+        return []
+    records = []
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    records.append(json.loads(line))
+                except Exception:
+                    pass
+    return records
+
+
+def save_actual_bet_logs(records: list, filepath: str = ACTUAL_BET_LOG_FILE):
+    with open(filepath, "w", encoding="utf-8") as f:
+        for rec in records:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
+def summarize_actual_bets(records: list) -> dict:
+    if not records:
+        return {
+            "count": 0,
+            "hits": 0,
+            "hit_rate": 0.0,
+            "total_bet": 0,
+            "total_payout": 0,
+            "profit": 0,
+            "roi": 0.0,
+        }
+    total_bet = sum(int(r.get("bet_amount", 0)) for r in records)
+    total_payout = sum(int(r.get("payout", 0)) for r in records)
+    hits = sum(1 for r in records if int(r.get("payout", 0)) > 0)
+    count = len(records)
+    return {
+        "count": count,
+        "hits": hits,
+        "hit_rate": (hits / count * 100.0) if count > 0 else 0.0,
+        "total_bet": total_bet,
+        "total_payout": total_payout,
+        "profit": total_payout - total_bet,
+        "roi": (total_payout / total_bet * 100.0) if total_bet > 0 else 0.0,
+    }
+
+
+def merge_actual_bet_logs(existing: list, incoming: list) -> Tuple[list, int]:
+    existing_ids = {r.get("id") for r in existing if r.get("id")}
+    added = 0
+    merged = list(existing)
+    for rec in incoming:
+        rid = rec.get("id") or str(uuid.uuid4())[:8]
+        rec["id"] = rid
+        if rid not in existing_ids:
+            merged.append(rec)
+            existing_ids.add(rid)
+            added += 1
+    return merged, added
+
+
+# ==========================================
 # データ初期化・画像最適化・APIヘルパー
 # ==========================================
 @st.cache_resource
@@ -206,7 +274,8 @@ def get_default_boats_rows():
 
 
 def ensure_session_state():
-    today_str = datetime.datetime.now().strftime("%Y%m%d")
+    today_date = datetime.date.today()
+    today_str = today_date.strftime("%Y%m%d")
     defaults = {
         "stadium": "戸田",
         "race_no": 1,
@@ -221,6 +290,15 @@ def ensure_session_state():
         "ai_notes": "",
         "ai_meta_msg": "",
         "last_prediction": None,
+        # 実戦収支フォーム用
+        "ab_date": today_date,
+        "ab_stadium": "戸田",
+        "ab_race_no": 1,
+        "ab_category": "本線 (A/B)",
+        "ab_rank": "A",
+        "ab_bet_amount": 1500,
+        "ab_payout": 0,
+        "ab_memo": "",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -242,9 +320,7 @@ def optimize_image_bytes(raw_bytes: bytes, max_side: int = MAX_IMAGE_SIDE, quali
     try:
         with Image.open(io.BytesIO(raw_bytes)) as img:
             img = ImageOps.exif_transpose(img)
-            if img.mode not in ("RGB", "L"):
-                img = img.convert("RGB")
-            elif img.mode == "L":
+            if img.mode != "RGB":
                 img = img.convert("RGB")
 
             w, h = img.size
@@ -266,6 +342,8 @@ def explain_api_error(exc: Exception) -> str:
     low = msg.lower()
     if "api_key" in low or "api key" in low or "401" in low or "403" in low or "permission" in low:
         return f"APIキーが無効、または権限がありません。Streamlit Secrets の GEMINI_API_KEY を確認してください。（詳細: {msg[:180]}）"
+    if "503" in low or "unavailable" in low or "high demand" in low or "overloaded" in low:
+        return f"Google側のモデルが一時的に混雑しています（503）。数秒待って再試行するか、サイドバーで `gemini-3.5-flash` 等に切り替えてください。（詳細: {msg[:180]}）"
     if "429" in low or "quota" in low or "resource_exhausted" in low or "rate" in low:
         return f"利用上限（レート制限 / 429）に達しました。モデルを `gemini-3.5-flash` や `gemini-3.5-flash-lite` に切り替えるか、少し時間を置いて再試行してください。（詳細: {msg[:180]}）"
     if "404" in low or "not found" in low:
@@ -297,7 +375,6 @@ def test_gemini_connection(api_key: str, model_name: str) -> Tuple[bool, str]:
 def _call_single_model_extraction(client, model_name: str, contents: list) -> RaceExtractionResult:
     from google.genai import types
 
-    # 1st try: Structured Output (Pydantic schema)
     try:
         response = client.models.generate_content(
             model=model_name,
@@ -315,9 +392,8 @@ def _call_single_model_extraction(client, model_name: str, contents: list) -> Ra
         raw_text = re.sub(r"\s*```$", "", raw_text)
         return RaceExtractionResult.model_validate_json(raw_text)
     except Exception as first_err:
-        # Schema非対応系エラーのみ JSON モードへフォールバック（認証/429/404は上位へ投げる）
         low = str(first_err).lower()
-        if any(tok in low for tok in ("401", "403", "404", "429", "quota", "api_key", "api key", "not found", "timeout", "deadline")):
+        if any(tok in low for tok in ("401", "403", "404", "429", "503", "unavailable", "quota", "api_key", "api key", "not found", "timeout", "deadline")):
             raise
         schema_hint = (
             "\n出力は必ず次のキーを持つJSONオブジェクトのみ返してください: "
@@ -379,7 +455,6 @@ def extract_race_from_images(
         except Exception as e:
             errors.append(f"{cand}: {e}")
             low = str(e).lower()
-            # APIキー自体が無効なら他モデルを試しても無駄なので即終了
             if "api_key" in low or "api key" in low or "401" in low or "403" in low:
                 raise RuntimeError(explain_api_error(e)) from e
 
@@ -718,6 +793,41 @@ def boat_badge_html(boat_no: int) -> str:
     return f'<span class="boat-badge" style="background:{bg};color:{fg};border:1px solid {border};">{boat_no}</span>'
 
 
+def prefill_actual_bet_from_prediction(pred: dict):
+    """直前の予測結果から実戦収支フォームへ自動入力する。"""
+    m = re.match(r"^(\d{4})(\d{2})(\d{2})_[^_]+_(\d{1,2})R?$", str(pred.get("race_id", "")))
+    if m:
+        try:
+            st.session_state["ab_date"] = datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            st.session_state["ab_race_no"] = int(m.group(4))
+        except Exception:
+            pass
+    if pred.get("stadium") in STADIUM_LIST:
+        st.session_state["ab_stadium"] = pred["stadium"]
+
+    rk = pred.get("conf_rank", "B")
+    st.session_state["ab_rank"] = rk
+    if rk in engine.MAIN_TARGET_RANKS:
+        st.session_state["ab_category"] = "本線 (A/B)"
+        df_b = pred.get("main_bets_df")
+        if df_b is not None and not df_b.empty:
+            st.session_state["ab_bet_amount"] = int(df_b["推奨金額"].sum())
+            st.session_state["ab_memo"] = ", ".join(df_b["買い目"].tolist())
+        else:
+            st.session_state["ab_bet_amount"] = int(pred.get("budget", 1500))
+            st.session_state["ab_memo"] = ""
+    else:
+        st.session_state["ab_category"] = "穴予想 (C+〜)"
+        df_b = pred.get("ana_bets_df")
+        if df_b is not None and not df_b.empty:
+            st.session_state["ab_bet_amount"] = int(df_b["推奨金額"].sum())
+            st.session_state["ab_memo"] = ", ".join(df_b["買い目"].tolist())
+        else:
+            st.session_state["ab_bet_amount"] = 400
+            st.session_state["ab_memo"] = ""
+    st.session_state["ab_payout"] = 0
+
+
 def render_prediction_result(pred: dict):
     conf_rank = pred["conf_rank"]
     rel = pred["reliability"]
@@ -824,6 +934,10 @@ def render_prediction_result(pred: dict):
                         f"→ {rd['tactics']} / 相手軸: {rd['target1']}・{rd['target2']}号艇"
                     )
 
+    if st.button("💰 このレースを「実戦収支」タブへセットする", use_container_width=True):
+        prefill_actual_bet_from_prediction(pred)
+        st.success("「💰 実戦収支」タブの入力欄にセットしました。レース終了後に払戻額を入れて保存してください！")
+
     st.subheader("📊 各艇パワー＆展示評価")
     disp_rows = []
     for _, r in res.sort_values("target_course").iterrows():
@@ -858,16 +972,16 @@ with st.sidebar:
         help="Streamlit Cloud の Secrets に GEMINI_API_KEY を設定すると自動入力されます。",
     )
     selected_model = st.selectbox(
-        "Geminiモデル（推奨: gemini-4-hydrogen / gemini-3.5-flash）",
+        "Geminiモデル（推奨: gemini-3.5-flash / gemini-4-hydrogen）",
         DEFAULT_GEMINI_MODELS,
         index=0,
     )
-    custom_model = st.text_input("カスタムモデル名（任意）", value="", placeholder="例: gemini-4-hydrogen")
+    custom_model = st.text_input("カスタムモデル名（任意）", value="", placeholder="例: gemini-3.5-flash")
     active_model = custom_model.strip() or selected_model
     auto_fallback = st.toggle(
         "エラー時 自動フォールバック",
         value=True,
-        help="選択モデルが429/404/タイムアウト時に安定モデルへ自動切替して再試行します。",
+        help="選択モデルが503/429/404/タイムアウト時に安定モデルへ自動切替して再試行します。",
     )
 
     if st.button("🔌 APIキー＆モデル疎通テスト", use_container_width=True):
@@ -887,9 +1001,9 @@ with st.sidebar:
     st.caption(f"場別モデル: {venue_models}")
 
 st.title("🚤 競艇予測 v17.4")
-st.caption(f"Gemini 画像読み取り（高速リサイズ＆自動切替対応）｜既定: {active_model}")
+st.caption(f"Gemini 画像読み取り × 実戦収支管理｜モデル: {active_model}")
 
-tab_predict, tab_logs, tab_db = st.tabs(["🚤 レース予測", "📝 結果・収支", "🔍 選手・DB"])
+tab_predict, tab_actual, tab_logs, tab_db = st.tabs(["🚤 レース予測", "💰 実戦収支", "📝 予測ログ", "🔍 選手・DB"])
 
 # ==========================================
 # タブ1: レース予測
@@ -1084,7 +1198,228 @@ with tab_predict:
 
 
 # ==========================================
-# タブ2: 結果入力・収支ログ
+# タブ2: 実戦収支（実際に賭けた舟券の収支管理）
+# ==========================================
+with tab_actual:
+    actual_logs = load_actual_bet_logs()
+
+    with st.container(border=True):
+        st.markdown("#### ✍️ 実戦の購入・払戻を記録")
+        if st.session_state.get("last_prediction"):
+            lp = st.session_state["last_prediction"]
+            if st.button(f"📋 直前の予測（{lp['stadium']} {lp['race_id'].split('_')[-1]} / ランク{lp['conf_rank']}）から自動入力", use_container_width=True):
+                prefill_actual_bet_from_prediction(lp)
+                st.rerun()
+
+        c1, c2, c3 = st.columns([2, 1.5, 1])
+        with c1:
+            ab_date = st.date_input("日付", value=st.session_state["ab_date"], key="ab_date_input")
+        with c2:
+            st_idx = STADIUM_LIST.index(st.session_state["ab_stadium"]) if st.session_state["ab_stadium"] in STADIUM_LIST else 1
+            ab_stadium = st.selectbox("会場", STADIUM_LIST, index=st_idx, key="ab_stadium_input")
+        with c3:
+            ab_race_no = st.number_input("R", min_value=1, max_value=12, value=int(st.session_state["ab_race_no"]), step=1, key="ab_rno_input")
+
+        c4, c5 = st.columns([2, 1])
+        cat_options = ["本線 (A/B)", "穴予想 (C+〜)", "裁量・その他"]
+        cat_idx = cat_options.index(st.session_state["ab_category"]) if st.session_state["ab_category"] in cat_options else 0
+        with c4:
+            ab_category = st.selectbox("買い方区分", cat_options, index=cat_idx, key="ab_cat_input")
+        rank_options = ["A", "B", "C+", "C", "C-", "D", "E", "裁量"]
+        rk_idx = rank_options.index(st.session_state["ab_rank"]) if st.session_state["ab_rank"] in rank_options else 0
+        with c5:
+            ab_rank = st.selectbox("ランク", rank_options, index=rk_idx, key="ab_rank_input")
+
+        c6, c7 = st.columns(2)
+        with c6:
+            ab_bet = st.number_input("投資額 (円)", min_value=100, max_value=500000, value=int(st.session_state["ab_bet_amount"]), step=100, key="ab_bet_input")
+        with c7:
+            ab_payout = st.number_input("払戻額 (円 / ハズレは0)", min_value=0, max_value=5000000, value=int(st.session_state["ab_payout"]), step=10, key="ab_pay_input")
+
+        ab_memo = st.text_input("買い目・メモ（任意）", value=st.session_state["ab_memo"], placeholder="例: 1-2-3 500円 的中", key="ab_memo_input")
+
+        if st.button("💾 実戦収支を登録する", type="primary", use_container_width=True):
+            new_entry = {
+                "id": str(uuid.uuid4())[:8],
+                "date": ab_date.strftime("%Y-%m-%d"),
+                "stadium": ab_stadium,
+                "race_no": int(ab_race_no),
+                "category": ab_category,
+                "rank": ab_rank,
+                "bet_amount": int(ab_bet),
+                "payout": int(ab_payout),
+                "profit": int(ab_payout) - int(ab_bet),
+                "memo": ab_memo.strip(),
+                "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            actual_logs.append(new_entry)
+            save_actual_bet_logs(actual_logs)
+            st.session_state["ab_date"] = ab_date
+            st.session_state["ab_stadium"] = ab_stadium
+            st.session_state["ab_race_no"] = int(ab_race_no)
+            st.session_state["ab_category"] = ab_category
+            st.session_state["ab_rank"] = ab_rank
+            st.session_state["ab_bet_amount"] = int(ab_bet)
+            st.session_state["ab_payout"] = 0
+            st.session_state["ab_memo"] = ""
+            st.success(f"記録しました！（{ab_stadium} {ab_race_no}R ｜ 収支 {new_entry['profit']:+,}円）")
+            st.rerun()
+
+    st.divider()
+    st.subheader("📊 実戦収支まとめ")
+
+    if not actual_logs:
+        st.info("まだ実戦収支の記録がありません。上のフォームから登録すると、ここにトータル収支・回収率・推移グラフが表示されます。")
+    else:
+        today_iso = datetime.date.today().strftime("%Y-%m-%d")
+        month_prefix = datetime.date.today().strftime("%Y-%m")
+
+        f1, f2, f3 = st.columns(3)
+        with f1:
+            period_filter = st.selectbox("期間", ["全期間", "今日", "今月"], index=0)
+        with f2:
+            cat_filter = st.selectbox("区分", ["すべて", "本線 (A/B)", "穴予想 (C+〜)", "裁量・その他"], index=0)
+        with f3:
+            venues_in_log = sorted({r.get("stadium", "") for r in actual_logs if r.get("stadium")})
+            venue_filter = st.selectbox("会場", ["すべて"] + venues_in_log, index=0)
+
+        filtered = []
+        for r in actual_logs:
+            d_str = str(r.get("date", ""))
+            if period_filter == "今日" and d_str != today_iso:
+                continue
+            if period_filter == "今月" and not d_str.startswith(month_prefix):
+                continue
+            if cat_filter != "すべて" and r.get("category") != cat_filter:
+                continue
+            if venue_filter != "すべて" and r.get("stadium") != venue_filter:
+                continue
+            filtered.append(r)
+
+        sm = summarize_actual_bets(filtered)
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("トータル収支", f"{sm['profit']:+,}円")
+        k2.metric("回収率 (ROI)", f"{sm['roi']:.1f}%")
+        k3.metric("投資 / 払戻", f"{sm['total_bet']:,}円", f"払戻 {sm['total_payout']:,}円")
+        k4.metric("的中率", f"{sm['hit_rate']:.1f}%", f"{sm['hits']}/{sm['count']} R")
+
+        if filtered:
+            df_act = pd.DataFrame(filtered)
+            df_act["profit"] = df_act["payout"].astype(int) - df_act["bet_amount"].astype(int)
+
+            # 累積収支グラフ
+            df_chart = df_act.sort_values(["date", "created_at"]).reset_index(drop=True)
+            df_chart["累積収支(円)"] = df_chart["profit"].cumsum()
+            df_chart["レース順"] = range(1, len(df_chart) + 1)
+            st.caption("📈 累積収支の推移")
+            st.line_chart(df_chart.set_index("レース順")[["累積収支(円)"]], height=220)
+
+            # 区分別・日別・会場別集計
+            sum_tab1, sum_tab2, sum_tab3 = st.tabs(["区分別", "日別", "会場別"])
+            with sum_tab1:
+                g = df_act.groupby("category", as_index=False).agg(
+                    レース数=("id", "count"),
+                    的中=("payout", lambda s: int((s > 0).sum())),
+                    投資=("bet_amount", "sum"),
+                    払戻=("payout", "sum"),
+                    収支=("profit", "sum"),
+                )
+                g["回収率"] = (g["払戻"] / g["投資"] * 100.0).round(1).map(lambda x: f"{x:.1f}%")
+                st.dataframe(g.rename(columns={"category": "区分"}), use_container_width=True, hide_index=True)
+
+            with sum_tab2:
+                g = df_act.groupby("date", as_index=False).agg(
+                    レース数=("id", "count"),
+                    的中=("payout", lambda s: int((s > 0).sum())),
+                    投資=("bet_amount", "sum"),
+                    払戻=("payout", "sum"),
+                    収支=("profit", "sum"),
+                ).sort_values("date", ascending=False)
+                g["回収率"] = (g["払戻"] / g["投資"] * 100.0).round(1).map(lambda x: f"{x:.1f}%")
+                st.dataframe(g.rename(columns={"date": "日付"}), use_container_width=True, hide_index=True)
+
+            with sum_tab3:
+                g = df_act.groupby("stadium", as_index=False).agg(
+                    レース数=("id", "count"),
+                    的中=("payout", lambda s: int((s > 0).sum())),
+                    投資=("bet_amount", "sum"),
+                    払戻=("payout", "sum"),
+                    収支=("profit", "sum"),
+                ).sort_values("収支", ascending=False)
+                g["回収率"] = (g["払戻"] / g["投資"] * 100.0).round(1).map(lambda x: f"{x:.1f}%")
+                st.dataframe(g.rename(columns={"stadium": "会場"}), use_container_width=True, hide_index=True)
+
+            # 明細テーブル
+            st.markdown("##### 🧾 購入履歴")
+            hist_df = df_act.sort_values(["date", "created_at"], ascending=False)[
+                ["date", "stadium", "race_no", "category", "rank", "bet_amount", "payout", "profit", "memo"]
+            ].rename(
+                columns={
+                    "date": "日付",
+                    "stadium": "会場",
+                    "race_no": "R",
+                    "category": "区分",
+                    "rank": "ランク",
+                    "bet_amount": "投資",
+                    "payout": "払戻",
+                    "profit": "収支",
+                    "memo": "メモ",
+                }
+            )
+            st.dataframe(hist_df, use_container_width=True, hide_index=True)
+
+            # 履歴の削除
+            with st.expander("🗑️ 誤入力した履歴を削除する"):
+                del_options = {
+                    f"{r['date']} {r['stadium']} {r['race_no']}R ({r['category']} / 投資{r['bet_amount']:,}円 / 払戻{r['payout']:,}円) [{r['id']}]": r["id"]
+                    for r in reversed(actual_logs)
+                }
+                del_label = st.selectbox("削除する履歴を選択", list(del_options.keys()))
+                if st.button("選択した履歴を削除", use_container_width=True):
+                    target_id = del_options[del_label]
+                    new_logs = [r for r in actual_logs if r.get("id") != target_id]
+                    save_actual_bet_logs(new_logs)
+                    st.success("削除しました。")
+                    st.rerun()
+
+    st.divider()
+    with st.expander("💾 実戦収支データのバックアップ・復元"):
+        if actual_logs:
+            bc1, bc2 = st.columns(2)
+            with bc1:
+                jsonl_data = "\n".join(json.dumps(rec, ensure_ascii=False) for rec in actual_logs).encode("utf-8")
+                st.download_button(
+                    "⬇️ JSONLで保存（復元用）",
+                    data=jsonl_data,
+                    file_name="actual_bet_log.jsonl",
+                    mime="application/x-ndjson",
+                    use_container_width=True,
+                )
+            with bc2:
+                csv_data = pd.DataFrame(actual_logs).to_csv(index=False).encode("utf-8-sig")
+                st.download_button(
+                    "⬇️ CSVで保存（Excel用）",
+                    data=csv_data,
+                    file_name="actual_bet_log.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+        up_log = st.file_uploader("保存済みの actual_bet_log.jsonl を読み込んで復元・結合", type=["jsonl", "json", "txt"])
+        if up_log is not None and st.button("⬆️ 実戦収支ログを復元する", use_container_width=True):
+            try:
+                raw_txt = up_log.getvalue().decode("utf-8")
+                incoming = [json.loads(ln) for ln in raw_txt.splitlines() if ln.strip()]
+                merged, added_cnt = merge_actual_bet_logs(actual_logs, incoming)
+                save_actual_bet_logs(merged)
+                st.success(f"{added_cnt}件の履歴を取り込みました（合計 {len(merged)}件）。")
+                st.rerun()
+            except Exception as e:
+                st.error(f"復元エラー: {e}")
+        st.caption("※ Streamlit Community Cloud はアプリ再起動時にサーバー上の一時ファイルが初期化されるため、こまめにJSONLをダウンロード（またはGitHubへ配置）しておくと安心です。")
+
+
+# ==========================================
+# タブ3: 予測ログ（v17_4_1.py バックテスト照合用）
 # ==========================================
 with tab_logs:
     logs = engine.load_prediction_logs()
@@ -1092,7 +1427,7 @@ with tab_logs:
     main_settled = [r for r in settled if r.get("conf_rank") in engine.MAIN_TARGET_RANKS and r.get("main_bets")]
     ana_settled = [r for r in settled if r.get("conf_rank") in engine.ANA_TARGET_RANKS and r.get("bets")]
 
-    st.subheader("📈 収支サマリー")
+    st.subheader("📈 予測ログ 収支サマリー")
     m1, m2, m3 = st.columns(3)
     m1.metric("全予測ログ", f"{len(logs)} R", f"確定 {len(settled)} R")
     if main_settled:
@@ -1107,7 +1442,7 @@ with tab_logs:
         m3.metric("穴予想 ROI (C+〜)", "-")
 
     st.divider()
-    st.subheader("📝 レース結果の登録")
+    st.subheader("📝 レース結果の登録（予測ログ照合）")
     if logs:
         recent_logs = list(reversed(logs[-20:]))
         options = {
@@ -1149,13 +1484,12 @@ with tab_logs:
             mime="application/x-ndjson",
             use_container_width=True,
         )
-        st.caption("※ Streamlit Community Cloud はアプリ再起動時にサーバー上の一時ファイルが初期化されるため、必要に応じてログをダウンロードしてGitHubへ反映してください。")
     else:
         st.info("まだ予測ログがありません。レース予測を実行すると自動で記録されます。")
 
 
 # ==========================================
-# タブ3: 選手検索・DB管理
+# タブ4: 選手検索・DB管理
 # ==========================================
 with tab_db:
     st.subheader("🔍 選手コース別成績検索")
